@@ -1,0 +1,10 @@
+{
+  "name": "AI Placement Mentor",
+  "short_name": "Placement AI",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0D0D0D",
+  "theme_color": "#5C6BFF",
+  "description": "Your AI-Powered Placement Coach",
+  "icons": []
+}

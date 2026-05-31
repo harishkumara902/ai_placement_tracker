@@ -1,0 +1,13 @@
+.dart_tool/
+.packages
+build/
+.flutter-plugins*
+.idea/
+.env
+backend/__pycache__/
+backend/**/*.pyc
+backend/placement_mentor.db
+backend/ml/placement_model.joblib
+backend/rag/.chroma/
+.venv/
+.toolstate/
