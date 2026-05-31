@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import RoadmapProgress, User, get_db
+from database import RoadmapItem, RoadmapProgress, User, get_db
 from models.schemas import RoadmapProgressRequest, RoadmapRequest, RoadmapResult, RoadmapWeek
 from routers.auth import get_current_user
 
@@ -10,14 +11,17 @@ router = APIRouter(prefix="/roadmap", tags=["Learning Roadmap"])
 
 
 @router.post("/generate", response_model=RoadmapResult)
-def generate_roadmap(payload: RoadmapRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def generate_roadmap(payload: RoadmapRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     key = f"{payload.company.lower()}-{payload.role.lower()}-{payload.weeks}".replace(" ", "-")
-    progress = {
-        row.week_number: row.complete
-        for row in db.query(RoadmapProgress)
-        .filter(RoadmapProgress.user_id == user.id, RoadmapProgress.roadmap_key == key)
-        .all()
-    }
+    rows = (
+        await db.scalars(
+            select(RoadmapProgress).where(
+                RoadmapProgress.user_id == user.id,
+                RoadmapProgress.roadmap_key == key,
+            )
+        )
+    ).all()
+    progress = {row.week_number: row.complete for row in rows}
     phases = [
         ("Foundation Sprint", ["Role fundamentals", "Diagnostic assessment"], ["Official documentation", "Curated fundamentals playlist"]),
         ("Problem Solving", ["DSA or SQL patterns", "Timed drills"], ["LeetCode study plan", "SQLBolt"]),
@@ -27,11 +31,12 @@ def generate_roadmap(payload: RoadmapRequest, user: User = Depends(get_current_u
     weeks = []
     for number in range(1, payload.weeks + 1):
         phase = phases[min(3, (number - 1) * 4 // payload.weeks)]
+        topic = f"{payload.company} {payload.role} focus"
         weeks.append(
             RoadmapWeek(
                 number=number,
                 title=phase[0],
-                topics=phase[1] + [f"{payload.company} {payload.role} focus"],
+                topics=phase[1] + [topic],
                 resources=phase[2],
                 daily_tasks=3 + (number % 3),
                 complete=progress.get(number, False),
@@ -41,19 +46,29 @@ def generate_roadmap(payload: RoadmapRequest, user: User = Depends(get_current_u
 
 
 @router.post("/progress")
-def update_progress(payload: RoadmapProgressRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = (
-        db.query(RoadmapProgress)
-        .filter(
+async def update_progress(payload: RoadmapProgressRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    row = await db.scalar(
+        select(RoadmapProgress).where(
             RoadmapProgress.user_id == user.id,
             RoadmapProgress.roadmap_key == payload.roadmap_key,
             RoadmapProgress.week_number == payload.week_number,
         )
-        .first()
     )
     if row:
         row.complete = payload.complete
     else:
         db.add(RoadmapProgress(user_id=user.id, roadmap_key=payload.roadmap_key, week_number=payload.week_number, complete=payload.complete))
-    db.commit()
+
+    item = await db.scalar(
+        select(RoadmapItem).where(
+            RoadmapItem.user_id == user.id,
+            RoadmapItem.week == payload.week_number,
+            RoadmapItem.topic == payload.roadmap_key,
+        )
+    )
+    if item:
+        item.is_completed = payload.complete
+    else:
+        db.add(RoadmapItem(user_id=user.id, week=payload.week_number, topic=payload.roadmap_key, is_completed=payload.complete))
+    await db.commit()
     return {"saved": True, "week_number": payload.week_number, "complete": payload.complete}

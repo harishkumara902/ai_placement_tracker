@@ -1,85 +1,171 @@
 # AI Placement Mentor
 
-A full-stack placement preparation platform built with Flutter Web and FastAPI. The application provides JWT authentication, resume ATS analysis, persistent learning roadmaps, evaluated mock interviews, coding practice, company retrieval, and an ML-backed placement probability report.
+Production-ready full-stack placement preparation app:
 
-## Experience
+- Flutter mobile app in `flutter_app/` for APK and Play Store builds.
+- FastAPI backend in `backend/` for Render deployment.
+- PostgreSQL on Render for production data.
+- SQLite fallback for local development.
+- ChromaDB persistent vector store on the Render instance.
+- RandomForest ML predictor trained on first startup when no model exists.
 
-- Dark academia / futuristic terminal interface with animated dot-grid background, glass cards, responsive navigation, and loading feedback.
-- Protected Flutter application shell with dashboard, all preparation modules, and profile settings.
-- AI agents automatically use thoughtful offline responses unless an OpenAI or Gemini key is supplied.
-- Retrieval seed corpus includes 50 DSA questions, 30 SQL questions, 20 HR questions, and experiences for five companies.
-- Random Forest placement model trains on 500 generated examples on first prediction and saves its artifact locally.
-
-## Structure
+## Repository Structure
 
 ```text
-ai_placement_mentor/
-  lib/                         Flutter web application
-    core/                      theme, API client, JWT auth state
-    pages/                     landing, auth, dashboard and feature screens
-    widgets/                   reusable glass UI, score ring and gauge
-  backend/
-    agents/                    AI/mocked placement specialist agents
-    ml/                        persisted sklearn predictor
-    models/                    Pydantic contracts
-    rag/                       seeded vector store and retriever
-    routers/                   protected /api endpoints
-    main.py                    FastAPI entrypoint and agentic chat route
+backend/
+  main.py
+  config.py
+  database.py
+  requirements.txt
+  render.yaml
+  .env.example
+  alembic/
+  routers/
+  agents/
+  rag/
+  ml/
+flutter_app/
+  pubspec.yaml
+  android/
+  lib/
+    config/
+    core/
+    models/
+    services/
+    providers/
+    screens/
+    pages/
+    widgets/
 ```
 
-## Prerequisites
+## Local Development
 
-- Flutter stable with web support
-- Python 3.11 or newer
+### Backend
 
-## Backend Setup
-
-From the project directory:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env
+```bash
 cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+# Add GEMINI_API_KEY or OPENAI_API_KEY if you want real AI responses.
 uvicorn main:app --reload --port 8000
 ```
 
-The default mode requires no API keys. To enable a provider, set `AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `AI_PROVIDER=gemini` with `GEMINI_API_KEY` in `.env` before starting the backend.
+If `DATABASE_URL` is not set, the backend automatically uses SQLite at `backend/placement.db`.
 
-For full semantic retrieval, install `pip install -r requirements-rag.txt` and set `ENABLE_CHROMA=true` to persist ChromaDB embeddings using `all-MiniLM-L6-v2`. Chroma may require Microsoft C++ Build Tools on Windows. With it disabled, the seeded retrieval corpus runs through the zero-download retriever so demos always start immediately.
+Useful checks:
 
-## Flutter Setup
-
-In another terminal from the project directory:
-
-```powershell
-flutter pub get
-flutter run -d chrome --web-port 5173 --dart-define=API_BASE_URL=http://127.0.0.1:8000/api
+```bash
+curl http://127.0.0.1:8000/health
+open http://127.0.0.1:8000/docs
 ```
 
-For Windows convenience, `.\run.ps1` starts both services. On macOS/Linux, run `chmod +x run.sh && ./run.sh`.
+### Flutter
 
-## API Surface
+```bash
+cd flutter_app
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+```
 
-All application operations use the `/api` prefix. Authenticated routes require `Authorization: Bearer <jwt>`.
+Use `http://10.0.2.2:8000` for Android emulator and `http://localhost:8000` for iOS simulator.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | JWT account flow |
-| `POST /api/resume/analyze`, `POST /api/resume/analyze-file` | ATS analysis for pasted text or upload |
-| `POST /api/roadmap/generate`, `POST /api/roadmap/progress` | Timeline and persisted completion |
-| `POST /api/interview/start`, `POST /api/interview/evaluate` | HR, technical, and system-design sessions |
-| `GET /api/code/problems`, `POST /api/code/run`, `POST /api/code/explain` | Coding arena |
-| `GET /api/company`, `GET /api/company/{name}` | Company preparation and retrieval |
-| `POST /api/predict/placement` | Random Forest probability and recommendations |
-| `POST /api/chat` | Master intent router |
+## Render Deployment
 
-Interactive OpenAPI documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) while the backend runs.
+1. Push this repository to GitHub.
+2. Render Dashboard → New → PostgreSQL.
+3. Choose the free tier and copy the Internal Database URL.
+4. Render Dashboard → New → Web Service → connect this repo.
+5. Set Root Directory to `backend`.
+6. Use:
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+7. Add environment variables:
+   - `DATABASE_URL` = Render PostgreSQL Internal Database URL
+   - `SECRET_KEY` = any random 32+ character value
+   - `AI_PROVIDER` = `gemini`
+   - `GEMINI_API_KEY` = your Gemini key
+   - `OPENAI_API_KEY` = optional OpenAI key
+8. Deploy and test:
 
-## Production Notes
+```bash
+curl https://your-app.onrender.com/health
+```
 
-- Replace `SECRET_KEY`, restrict CORS to deployed frontend origins, and run behind HTTPS before deployment.
-- SQLite is suitable for local and small deployments; configure a managed database through `DATABASE_URL` for multi-instance production.
-- The Coding Arena intentionally executes a deterministic sandbox-free verdict service in this build. A production judge should run untrusted code in isolated containers with resource limits.
-- Google OAuth is visibly available in the Flutter auth UI and reports configuration status until an OAuth backend is supplied.
+`backend/render.yaml` is included for Blueprint deployment. Alembic runs on startup and `Base.metadata.create_all()` is also called so local demo databases bootstrap automatically.
+
+## PostgreSQL Production Database
+
+Tables created:
+
+- `users`: id, email, name, hashed_password, college, target_domain, created_at
+- `user_progress`: id, user_id, module, score, completed_at
+- `roadmap_items`: id, user_id, week, topic, is_completed
+- `interview_sessions`: id, user_id, type, score, feedback, created_at
+- `predictions`: id, user_id, probability, weak_areas, cgpa, created_at
+
+## ChromaDB Vector Store
+
+On startup, the backend creates `./chroma_db` and seeds:
+
+- 50 DSA questions
+- 30 SQL questions
+- 20 HR questions
+- 10 company-specific questions
+
+The embedding model is `all-MiniLM-L6-v2`. If ChromaDB or the embedding model is unavailable locally, the app falls back to keyword retrieval so demos still work.
+
+## Flutter APK Build
+
+1. Update `flutter_app/lib/config/api_config.dart`:
+
+```dart
+static const String baseUrl = "https://your-app.onrender.com";
+```
+
+Or build with:
+
+```bash
+cd flutter_app
+flutter build apk --release --dart-define=API_BASE_URL=https://your-app.onrender.com
+```
+
+APK output:
+
+```text
+flutter_app/build/app/outputs/flutter-apk/app-release.apk
+```
+
+## Play Store Build
+
+Configure a release keystore in `flutter_app/android/app/build.gradle.kts`, then run:
+
+```bash
+cd flutter_app
+flutter build appbundle --release --dart-define=API_BASE_URL=https://your-app.onrender.com
+```
+
+Upload the generated `.aab` to Google Play Console.
+
+## Keep Render Free Tier Alive
+
+Use [cron-job.org](https://cron-job.org):
+
+- Method: `GET`
+- URL: `https://your-app.onrender.com/health`
+- Schedule: every 10 minutes
+
+This reduces cold starts on Render free tier.
+
+## API Health
+
+```http
+GET /health
+```
+
+Response:
+
+```json
+{"status":"ok","version":"1.0.0"}
+```

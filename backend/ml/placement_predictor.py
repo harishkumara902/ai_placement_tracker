@@ -7,7 +7,8 @@ from sklearn.ensemble import RandomForestClassifier
 from models.schemas import PredictionRequest, PredictionResult
 
 
-MODEL_PATH = Path(__file__).resolve().parent / "placement_model.joblib"
+MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
+MODEL_PATH = MODEL_DIR / "placement_model.pkl"
 DOMAINS = {"Software Dev": 0, "Data Analyst": 1, "DevOps": 2, "Digital Marketing": 3}
 FEATURES = ["CGPA", "Projects", "Internships", "Skills", "Certifications", "Backlogs", "Domain"]
 
@@ -19,6 +20,7 @@ class PlacementPredictor:
     def _load_or_train(self) -> RandomForestClassifier:
         if MODEL_PATH.exists():
             return joblib.load(MODEL_PATH)
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
         rng = np.random.default_rng(42)
         rows = 500
         cgpa = rng.uniform(4.5, 10, rows)
@@ -61,9 +63,20 @@ class PlacementPredictor:
             weak.append("Active backlogs can block eligibility for several drives.")
         if not weak:
             weak.append("Maintain interview practice consistency to convert a strong profile.")
-        actions = [
-            {"priority": "High", "action": "Complete one portfolio project with measurable outcomes."},
-            {"priority": "High", "action": "Practice two mock interviews and five DSA/SQL problems weekly."},
-            {"priority": "Medium", "action": f"Earn a relevant certification or internship exposure in {request.domain}."},
+        recommendations = [
+            "Complete one portfolio project with measurable outcomes.",
+            "Practice two mock interviews and five DSA/SQL problems weekly.",
+            f"Earn a relevant certification or internship exposure in {request.domain}.",
         ]
-        return PredictionResult(probability=probability, weak_areas=weak[:3], actions=actions, feature_importances=importance)
+        actions = [
+            {"priority": "High", "action": recommendations[0]},
+            {"priority": "High", "action": recommendations[1]},
+            {"priority": "Medium", "action": recommendations[2]},
+        ]
+        return PredictionResult(
+            probability=probability,
+            weak_areas=weak[:3],
+            recommendations=recommendations,
+            actions=actions,
+            feature_importances=importance,
+        )

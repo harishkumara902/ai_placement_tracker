@@ -4,9 +4,12 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
-    full_name: str = Field(min_length=2, max_length=120)
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    full_name: str | None = Field(default=None, min_length=2, max_length=120)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    college: str | None = None
+    target_domain: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -18,8 +21,11 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    name: str
     full_name: str
     email: EmailStr
+    college: str
+    target_domain: str
     target_role: str
     target_company: str
 
@@ -119,6 +125,7 @@ class PredictionRequest(BaseModel):
 class PredictionResult(BaseModel):
     probability: float
     weak_areas: list[str]
+    recommendations: list[str] = []
     actions: list[dict[str, str]]
     feature_importances: dict[str, float]
 

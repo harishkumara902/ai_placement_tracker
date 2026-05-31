@@ -1,10 +1,12 @@
 import os
 from functools import lru_cache
 
+from config import settings
+
 
 @lru_cache(maxsize=1)
 def embedding_model():
-    if os.getenv("ENABLE_CHROMA", "false").lower() != "true":
+    if not settings.enable_chroma and os.getenv("ENABLE_CHROMA", "").lower() != "true":
         return None
     try:
         from sentence_transformers import SentenceTransformer

@@ -1,7 +1,15 @@
-import os
 from pathlib import Path
 
+from config import safe_print, settings
 from rag.embeddings import embed
+
+
+COLLECTIONS = {
+    "DSA": "dsa_questions",
+    "SQL": "sql_questions",
+    "HR": "hr_questions",
+    "Company": "company_experiences",
+}
 
 
 def seeded_documents() -> list[dict[str, str]]:
@@ -36,46 +44,57 @@ def seeded_documents() -> list[dict[str, str]]:
     for index in range(20):
         topic = hr_patterns[index % len(hr_patterns)]
         documents.append({"id": f"hr-{index}", "text": f"HR question {index + 1}: How would you {topic}?", "category": "HR"})
-    for company in companies:
-        for index in range(4):
-            documents.append(
-                {
-                    "id": f"{company.lower()}-{index}",
-                    "text": f"{company} interview experience: Round {index + 1} covered aptitude, projects, SQL, DSA, and confident communication.",
-                    "category": company,
-                }
-            )
+    for index in range(10):
+        company = companies[index % len(companies)]
+        documents.append(
+            {
+                "id": f"company-{index}",
+                "text": f"{company} company-specific question {index + 1}: discuss projects, aptitude, SQL, DSA, role fit, and confident communication.",
+                "category": "Company",
+            }
+        )
     return documents
 
 
 class VectorStore:
     def __init__(self) -> None:
         self.documents = seeded_documents()
-        self.collection = None
-        if os.getenv("ENABLE_CHROMA", "false").lower() == "true":
+        self.collections = {}
+        if settings.enable_chroma:
             self._start_chroma()
 
     def _start_chroma(self) -> None:
         try:
             import chromadb
 
-            path = Path(__file__).resolve().parent / ".chroma"
-            self.collection = chromadb.PersistentClient(path=str(path)).get_or_create_collection("interview_knowledge")
-            if self.collection.count() == 0:
-                texts = [doc["text"] for doc in self.documents]
-                vectors = embed(texts)
-                kwargs = {"ids": [doc["id"] for doc in self.documents], "documents": texts, "metadatas": [{"category": doc["category"]} for doc in self.documents]}
-                if vectors:
-                    kwargs["embeddings"] = vectors
-                self.collection.add(**kwargs)
-        except Exception:
-            self.collection = None
+            client = chromadb.PersistentClient(path=str(Path("./chroma_db").resolve()))
+            for category, collection_name in COLLECTIONS.items():
+                collection = client.get_or_create_collection(collection_name)
+                self.collections[category] = collection
+                category_docs = [doc for doc in self.documents if doc["category"] == category]
+                if collection.count() == 0 and category_docs:
+                    texts = [doc["text"] for doc in category_docs]
+                    vectors = embed(texts)
+                    kwargs = {
+                        "ids": [doc["id"] for doc in category_docs],
+                        "documents": texts,
+                        "metadatas": [{"category": doc["category"]} for doc in category_docs],
+                    }
+                    if vectors:
+                        kwargs["embeddings"] = vectors
+                    collection.add(**kwargs)
+        except Exception as exc:
+            safe_print(f"⚠️ ChromaDB unavailable, using keyword retrieval fallback: {exc}")
+            self.collections = {}
 
     def search(self, query: str, limit: int) -> list[str]:
-        if self.collection:
+        if self.collections:
             vectors = embed([query])
-            result = self.collection.query(query_embeddings=vectors, query_texts=None if vectors else [query], n_results=limit)
-            return result["documents"][0]
+            collected: list[str] = []
+            for collection in self.collections.values():
+                result = collection.query(query_embeddings=vectors, query_texts=None if vectors else [query], n_results=min(limit, 3))
+                collected.extend(result["documents"][0])
+            return collected[:limit]
         terms = set(query.lower().split())
         ranked = sorted(
             self.documents,
